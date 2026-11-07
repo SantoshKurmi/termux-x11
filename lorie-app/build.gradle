@@ -51,10 +51,30 @@ android {
         keyPassword 'xrj45yWGLbsO7W0v'
     }
 
+    // AntiGem: same certificate as AntiGem's release APK, so the sharedUid variant can join
+    // AntiGem's com.termux shared UID. release.jks is not committed; CI restores it from the
+    // RELEASE_KEYSTORE_BASE64 secret.
+    signingConfigs {
+        antigem {
+            storeFile file('release.jks')
+            storePassword '123456'
+            keyAlias 'antigem'
+            keyPassword '123456'
+        }
+    }
+
     compileOptions.sourceCompatibility JavaVersion.VERSION_1_9
     compileOptions.targetCompatibility JavaVersion.VERSION_1_9
     buildTypes.debug {
         signingConfig signingConfigs.debug
+        minifyEnabled true
+        shrinkResources true
+        proguardFiles 'proguard-rules.pro'
+    }
+    // AntiGem: non-debuggable build for releases. A debuggable APK in AntiGem's shared UID would
+    // let `adb shell run-as com.termux.x11` read AntiGem's private data.
+    buildTypes.release {
+        signingConfig signingConfigs.antigem
         minifyEnabled true
         shrinkResources true
         proguardFiles 'proguard-rules.pro'

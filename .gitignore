@@ -19,6 +19,8 @@ local.properties
 
 # Signing files
 .signing/
+# AntiGem release keystore (CI restores it from the RELEASE_KEYSTORE_BASE64 secret)
+release.jks
 
 # Intellij
 .idea/

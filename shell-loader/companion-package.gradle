@@ -19,10 +19,12 @@ import org.apache.tools.ant.filters.ReplaceTokens
 
 import java.security.MessageDigest
 
-def pkgName = 'termux-x11-nightly'
+// AntiGem: own package name, so `pkg upgrade` never swaps in x11-repo's termux-x11-nightly,
+// whose loader only accepts the official Termux:X11 signature.
+def pkgName = 'antigem-termux-x11'
 def pkgVersion = (file("$rootDir/lorie/version.gradle").text =~ /version = "([^"]+)"/)[0][1] + '-0'
 def pkgDescription = 'Companion package for termux-x11 app'
-def pkgHomepage = 'https://github.com/termux/termux-x11'
+def pkgHomepage = 'https://github.com/Santoshkurmi/termux-x11'
 def pkgMaintainer = 'Twaik Yont @twaik'
 def pkgDepends = 'xkeyboard-config'
 
@@ -82,6 +84,9 @@ Maintainer: $pkgMaintainer
 Version: $pkgVersion
 Homepage: $pkgHomepage
 Depends: $pkgDepends
+Conflicts: termux-x11-nightly, termux-x11
+Replaces: termux-x11-nightly, termux-x11
+Provides: termux-x11-nightly, termux-x11
 Description: $pkgDescription
 """
         def chmodLoader = "chmod 400 /$prefix/libexec/termux-x11/loader.apk"
@@ -145,8 +150,11 @@ size = ${content.values().sum { it.length }}
 arch = any
 license = GPL-3.0
 replaces = termux-x11
+replaces = termux-x11-nightly
 conflict = termux-x11
+conflict = termux-x11-nightly
 provides = termux-x11
+provides = termux-x11-nightly
 ${pacmanDepends.join('\n')}
 """.bytes,
         ]

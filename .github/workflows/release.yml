@@ -1,0 +1,134 @@
+name: Build & Publish Signed Termux:X11 Release
+
+# Builds the sharedUid Termux:X11 APK signed with AntiGem's release certificate, plus the
+# matching companion package, and publishes them as a GitHub release.
+# Works only with AntiGem's "termux shared UID" APK (com.termux, sharedUserId com.termux).
+
+on:
+  push:
+    branches:
+      - master
+    paths-ignore:
+      - '**.md'
+      - 'img/**'
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 0' # Weekly upstream sync on Sundays
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+        with:
+          submodules: false
+          fetch-depth: 0
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v6.4.1
+
+      - name: Sync with Upstream (scheduled runs only)
+        if: github.event_name == 'schedule'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/termux/termux-x11.git || true
+          git fetch upstream master
+          if git merge upstream/master --no-edit; then
+            git push origin master || echo "No changes to push or push not allowed"
+          else
+            echo "Merge conflict with upstream; skipping auto-sync merge"
+            git merge --abort || true
+          fi
+
+      - name: Fetch submodules
+        run: git submodule update --init --recursive --jobs 8 --depth 1
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Restore Keystore from Secret
+        run: |
+          if [ -z "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" ]; then
+            echo "Error: RELEASE_KEYSTORE_BASE64 secret is missing in GitHub repository settings."
+            exit 1
+          fi
+          echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > lorie-app/release.jks
+
+      - name: Extract Version Info
+        id: version
+        run: |
+          VERSION_NAME="$(grep -m 1 -E 'def version = "[^"]+"' lorie/version.gradle | sed -r 's/.*"([^"]+)".*/\1/')"
+          SHORT_SHA="$(git rev-parse --short=7 HEAD)"
+          echo "tag=v${VERSION_NAME}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "version_name=${VERSION_NAME}" >> $GITHUB_OUTPUT
+          echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Build sharedUid Release APK and companion package
+        run: |
+          chmod +x gradlew
+          ./gradlew :lorie-app:assembleSharedUidRelease :shell-loader:buildCompanionPackage
+
+      - name: Organize Release Artifacts
+        id: artifacts
+        run: |
+          mkdir -p release_output
+          APK_NAME="antigem-termux-x11-sharedUid.apk"
+          cp lorie-app/build/outputs/apk/sharedUid/release/termux-x11-universal-sharedUid-release.apk "release_output/${APK_NAME}"
+          cp shell-loader/build/outputs/companion/antigem-termux-x11-*-all.deb release_output/
+          cp shell-loader/build/outputs/companion/antigem-termux-x11-*-any.pkg.tar.xz release_output/
+          (cd release_output && sha256sum * > checksums-sha256.txt)
+          echo "apk_name=${APK_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: antigem-termux-x11-v${{ steps.version.outputs.version_name }}
+          path: release_output/*
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/master'
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ steps.version.outputs.sha }}
+          name: AntiGem Termux:X11 v${{ steps.version.outputs.version_name }}
+          body: |
+            Termux:X11 (sharedUid variant) signed with the AntiGem release certificate.
+
+            Works only with AntiGem's termux shared UID APK (`antiGem-termux-shared-*.apk`).
+            It runs inside AntiGem's process, so Android does not slow down or kill the
+            X server and desktop while you are looking at it.
+
+            Install:
+            1. Install `antigem-termux-x11-sharedUid.apk`.
+            2. In AntiGem's terminal: `pkg install x11-repo`, then
+               `dpkg -i antigem-termux-x11-*-all.deb` (or `apt install ./antigem-termux-x11-*-all.deb`).
+            3. `pkg install xfce` and run `termux-x11 :0 -xstartup xfce4-session`.
+
+            Do not install `termux-x11-nightly` from x11-repo: its loader only accepts the
+            official Termux:X11 signature.
+
+            - Version: v${{ steps.version.outputs.version_name }}
+            - Built from commit: ${{ steps.version.outputs.sha }}
+            - SHA256 checksums: see `checksums-sha256.txt`
+          draft: false
+          prerelease: false
+          files: release_output/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
