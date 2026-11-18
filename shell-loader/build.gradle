@@ -28,8 +28,10 @@ def signingConfig = project(':lorie-app').android.signingConfigs.antigem
 def keyStore = java.security.KeyStore.getInstance(java.security.KeyStore.getDefaultType())
 keyStore.load(new FileInputStream(signingConfig.storeFile), signingConfig.keyPassword.toCharArray())
 
-ext.targetApplicationId = "com.termux.x11"
-ext.embeddedApplicationId = "com.termux"
+// AntiGem: the loader starts AntiGem's Termux:X11 (lorie-app's applicationId, ai.antigem.x11), and the companion
+// package's scripts live in AntiGem's Linux system (/data/data/ai.antigem/files/usr). The Java names stay com.termux.x11.*
+ext.targetApplicationId = project(':lorie-app').android.defaultConfig.applicationId
+ext.embeddedApplicationId = "ai.antigem"
 
 android.defaultConfig.buildConfigField "String", "APPLICATION_ID", "\"$targetApplicationId\""
 android.defaultConfig.buildConfigField "String", "EMBEDDED_APPLICATION_ID", "\"$embeddedApplicationId\""
