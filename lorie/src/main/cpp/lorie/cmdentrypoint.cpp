@@ -54,6 +54,24 @@ static jmethodID sendBroadcast = nullptr;
 static jmethodID sendBroadcastDelayed = nullptr;
 static jmethodID setDocumentTag = nullptr;
 
+/**
+ * `subpath` inside Termux's prefix: $PREFIX first, so it works whatever the app's package name is (AntiGem's
+ * ai.antigem, ai.antidev, ...), then Termux's own /data/data/com.termux/files/usr. Returns a static buffer (use it
+ * before the next call), or nullptr when neither has it.
+ */
+static const char* termuxPath(const char* subpath) {
+    static char path[1024];
+    const char* prefixes[] = { getenv("PREFIX"), "/data/data/com.termux/files/usr" };
+    for (const char* prefix : prefixes) {
+        if (!prefix || !*prefix)
+            continue;
+        snprintf(path, sizeof(path), "%s%s", prefix, subpath);
+        if (access(path, F_OK) == 0)
+            return path;
+    }
+    return nullptr;
+}
+
 static jboolean start(JNIEnv *env, jobject self, jobjectArray args) {
     pthread_t t;
 
@@ -120,9 +138,9 @@ static jboolean start(JNIEnv *env, jobject self, jobjectArray args) {
     // No matter what tracer is attached.
     // In the case of gdb or lldb LD_PRELOAD is already set.
     // In the case of proot or proot-distro libtermux-exec in LD_PRELOAD will break linking.
-    if (access("/data/data/com.termux/files/usr/lib/libtermux-exec.so", F_OK) == 0 && !detectTracer()
-            && !getenv("XSTARTUP_LD_PRELOAD"))
-        setenv("LD_PRELOAD", "/data/data/com.termux/files/usr/lib/libtermux-exec.so", 1);
+    const char* termuxExec = termuxPath("/lib/libtermux-exec.so");
+    if (termuxExec && !detectTracer() && !getenv("XSTARTUP_LD_PRELOAD"))
+        setenv("LD_PRELOAD", termuxExec, 1);
 
     // adb sets TMPDIR to /data/local/tmp which is pretty useless.
     if (!strcmp("/data/local/tmp", getenv("TMPDIR") ?: ""))
@@ -131,8 +149,8 @@ static jboolean start(JNIEnv *env, jobject self, jobjectArray args) {
     if (!getenv("TMPDIR")) {
         if (access("/tmp", F_OK) == 0)
             setenv("TMPDIR", "/tmp", 1);
-        else if (access("/data/data/com.termux/files/usr/tmp", F_OK) == 0)
-            setenv("TMPDIR", "/data/data/com.termux/files/usr/tmp", 1);
+        else if (const char* termuxTmp = termuxPath("/tmp"))
+            setenv("TMPDIR", termuxTmp, 1);
     }
 
     if (!getenv("TMPDIR")) {
@@ -188,11 +206,11 @@ static jboolean start(JNIEnv *env, jobject self, jobjectArray args) {
             setenv("XKB_CONFIG_ROOT", "/usr/share/xkeyboard-config-2", 1);
         else if (access("/usr/share/X11/xkb", F_OK) == 0)
             setenv("XKB_CONFIG_ROOT", "/usr/share/X11/xkb", 1);
-        // Termux case
-        else if (access("/data/data/com.termux/files/usr/share/xkeyboard-config-2", F_OK) == 0)
-            setenv("XKB_CONFIG_ROOT", "/data/data/com.termux/files/usr/share/xkeyboard-config-2", 1);
-        else if (access("/data/data/com.termux/files/usr/share/X11/xkb", F_OK) == 0)
-            setenv("XKB_CONFIG_ROOT", "/data/data/com.termux/files/usr/share/X11/xkb", 1);
+        // Termux case ($PREFIX, then com.termux)
+        else if (const char* xkbConfig2 = termuxPath("/share/xkeyboard-config-2"))
+            setenv("XKB_CONFIG_ROOT", xkbConfig2, 1);
+        else if (const char* xkbX11 = termuxPath("/share/X11/xkb"))
+            setenv("XKB_CONFIG_ROOT", xkbX11, 1);
     }
 
     if (!getenv("XKB_CONFIG_ROOT")) {
